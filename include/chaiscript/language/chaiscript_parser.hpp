@@ -1092,9 +1092,9 @@ namespace chaiscript {
             if (unicode_size > 0) {
               process_unicode();
             }
-          } catch (const std::invalid_argument &) {
-          } catch (const exception::eval_error &) {
-            // Something happened with parsing, we'll catch it later?
+          } catch (...) {
+            // A destructor must never throw: an escape that fails to convert
+            // here would otherwise call std::terminate during unwinding.
           }
         }
 
@@ -1119,12 +1119,27 @@ namespace chaiscript {
         }
 
         void process_unicode() {
-          const auto ch = static_cast<uint32_t>(std::stoi(hex_matches, nullptr, 16));
+          // Reset the escape state before converting, so a failed conversion
+          // is never retried from the destructor. At most eight hex digits
+          // are collected, which always fit in unsigned long.
+          const auto digits = hex_matches;
           const auto match_size = hex_matches.size();
           hex_matches.clear();
           is_escaped = false;
           const auto u_size = unicode_size;
           unicode_size = 0;
+
+          if (digits.empty()) {
+            throw exception::eval_error("Incomplete unicode escape sequence");
+          }
+
+          const auto value = std::stoul(digits, nullptr, 16);
+
+          if (value > 0x10FFFF) {
+            throw exception::eval_error("Invalid 32 bit universal character");
+          }
+
+          const auto ch = static_cast<uint32_t>(value);
 
           char buf[4];
           if (u_size != match_size) {
